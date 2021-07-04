@@ -70,12 +70,12 @@ install_user_ssh_key() {
 
     # make sure authorized key installed
     key=$(cat ~/.ssh/id_rsa.pub)
-    ssh root@$HOST "grep \"$key\" ${key_file}"
-    #if [[ "$?" -eq 0 ]]; then
+    ssh root@$HOST "grep \"$key\" ${key_file}" > /dev/null 2>&1
+    if [[ "$?" -ne 0 ]]; then
         # apppend existing key to end of file
         echo do it
         ssh root@$HOST "echo \"$key\" >> ${key_file}" 
-    #fi
+    fi
 }
 
 ### mainline
