@@ -1,0 +1,15 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+ansible = "*"
+linode-api4 = "==5.2.1"
+polling = "==0.3.2"
+docker = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"

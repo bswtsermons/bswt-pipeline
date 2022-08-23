@@ -1,0 +1,106 @@
+- name: Define linode host
+  hosts: localhost
+  tags: pipeline_development
+  vars_files:
+      - ./group_vars/example_group/vars
+      - ./group_vars/example_group/credentials
+  tasks:
+    - name: Get 
+      linode.cloud.instance_info:
+        label: "{{ label }}"
+        api_token: "{{ token }}"
+      register: bswt_web_instance
+
+    - name: Add BSWT Web Linode instance to bswt_web_instances group
+      add_host:
+        name: "{{ bswt_web_instance.instance.ipv4 | first }}"
+        groups: bswt_web_instances
+    
+    - name: set facts for aws creds
+      set_fact:
+        localhost_AWS_ACCESS_KEY_ID: "{{ lookup('ansible.builtin.env', 'AWS_ACCESS_KEY_ID') }}"
+        localhost_AWS_SECRET_ACCESS_KEY: "{{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') }}"
+
+
+- name: Create BSWT Web Linode resources
+  hosts: bswt_web_instances
+  tags: pipeline_development
+  remote_user: "{{ app_user }}"
+  vars_files:
+      - ./group_vars/example_group/vars
+      - ./group_vars/example_group/credentials
+  tasks:
+    - name: install boto3
+      pip:
+        name: boto3
+
+    - name: get list of mysql backups
+      amazon.aws.aws_s3:
+        aws_access_key: "{{ hostvars['localhost']['localhost_AWS_ACCESS_KEY_ID'] }}"
+        aws_secret_key: "{{ hostvars['localhost']['localhost_AWS_SECRET_ACCESS_KEY']}}"
+        bucket: backup.bswt.org
+        mode: list
+      register: backups
+
+    - name: capture name of most recent mysql backup
+      set_fact:
+        most_recent_backup: "{{ backups.s3_keys | select('match', '^bswtsermons-mysql-backup-\\d{8}.sql.gz$') | last }}"
+    
+    - name: debug
+      debug:
+        msg: swanson {{ most_recent_backup }}
+
+    - name: create temporary file to download gzip file
+      tempfile:
+        state: file
+      register: backup_tempfile
+
+    - name: download bswtsermons backup
+      amazon.aws.aws_s3:
+        aws_access_key: "{{ hostvars['localhost']['localhost_AWS_ACCESS_KEY_ID'] }}"
+        aws_secret_key: "{{ hostvars['localhost']['localhost_AWS_SECRET_ACCESS_KEY']}}"
+        bucket: backup.bswt.org
+        mode: get
+        object: "{{ most_recent_backup }}"
+        dest: "{{ backup_tempfile.path }}"
+
+    # - name: DEBUG DELETE ME DEBUG
+    #   shell: |
+    #    docker network ls
+    #   register: file_content
+
+    # - name: foo
+    #   debug:
+    #     msg: "{{ file_content.stdout }}"
+
+    # does bswtsermons table exist?
+    - name: does bswtsermons database exist?
+      shell: |
+        echo "show databases" \
+          | docker run --network={{ network_name }} -i --rm mysql mysql -hbswt-mysql -uroot --password={{ mysql_root_password }} \ 
+          | grep bswtsermons
+      register: output_content
+      ignore_errors: yes
+
+    - name: foo
+      debug:
+        msg: "{{ output_content.rc }}"
+    
+    # docker 
+    - name: create bswtsermons table
+      shell: |
+        echo "create database bswtsermons" \
+          | docker run --network=bswt-network -i --rm mysql mysql -hbswt-mysql -uroot --password={{ mysql_root_password }}
+      # only run when couldn't find bswtsermons db
+      when: output_content.rc != 0
+
+    - name: import via docker command
+      shell: |
+        gzip -dc {{ backup_tempfile.path }} \
+          | docker run --network=bswt-network -i --rm mysql mysql -hbswt-mysql -uroot --password={{ mysql_root_password }} bswtsermons
+
+    - name: delete temp file
+      file:
+        path: "{{ backup_tempfile }}"
+        state: absent
+      when: backup_tempfile.path is defined
