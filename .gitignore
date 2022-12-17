@@ -105,3 +105,6 @@ dist
 
 ###
 token.txt
+
+prod/group_vars/*
+prod/vault-pass

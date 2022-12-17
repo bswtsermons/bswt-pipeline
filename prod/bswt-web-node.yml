@@ -1,230 +1,257 @@
-- name: Create BSWT Web Linode resources
+- name: Create BSWT Web resources
   hosts: localhost
-  tags: pipeline_development
-  vars_files:
-      - ./group_vars/example_group/vars
-      - ./group_vars/example_group/credentials
-  tasks:
-    - name: Create BSWT Web Linode instance
-      linode.cloud.instance:
-        label: "{{ label }}"
-        api_token: "{{ token }}"
-        type: g6-nanode-1
-        region: us-east
-        image: linode/debian11
-        root_pass: "{{ root_password }}"
-        authorized_keys: "{{ ssh_keys }}"
-        group: example_group
-        tags: example_group
-        state: present
-      register: bswt_web_instance
-
-    - name: Add BSWT Web Linode instance to bswt_web_instances group
-      add_host:
-        name: "{{ bswt_web_instance.instance.ipv4 | first }}"
-        groups: bswt_web_instances
-
-    - name: Create BSWT database persistent Linode volume
-      linode.cloud.volume:
-        label: "{{ data_volume_label }}"
-        api_token: "{{ token }}"
-        region: us-east
-        size: 20
-        linode_id: "{{ bswt_web_instance.instance.id }}"
-        state: present
-      register: bswt_web_volume
-
-# set up the remote administration user first so we can disable root logins
-- name: Set up remote administration user
-  hosts: bswt_web_instances
-  remote_user: root
-  vars_files:
-      - ./group_vars/example_group/vars
-      - ./group_vars/example_group/credentials
-  tasks:
-    - name: Create admin user
-      user:
-        name: "{{ admin_user }}"
-        comment: BSWT Administrative User
-        password: "{{ admin_password | string | password_hash('sha512', admin_salt) }}"
-        shell: /bin/bash
-
-    - name: Passwordless sudo enabled for admin user
-      community.general.sudoers:
-        name: admin-user-passwordless
-        user: "{{ admin_user }}"
-        commands: ALL
-    
-    - name: Add authorized key for admin user
-      authorized_key:
-        user: "{{ admin_user }}"
-        state: present
-        key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
-
-    - name: disable root ssh login
-      lineinfile:
-        dest: /etc/ssh/sshd_config
-        regexp: '^PermitRootLogin'
-        line: "#PermitRootLogin yes"
-        state: present
-      notify:
-        - restart ssh
-
-  handlers:
-   - name: restart ssh
-     service:
-       name: sshd
-       state: restarted
-
-- name: prepare mysql data volume
-  # tags: pipeline_development
-  hosts: bswt_web_instances
-  become: yes
-  vars_files: 
-    - ./group_vars/example_group/vars
-    - ./group_vars/example_group/credentials
-  tasks:
-    # - name: debug stuff
-    #   debug:
-    #     msg: rosalyn {{ hostvars['localhost']['bswt_web_volume']['volume']['filesystem_path'] }}
-    #     # msg: foo {{ bswt_web_volume }}
-    
-    - name: make ext4 filesystem
-      filesystem:
-        fstype: ext4
-        dev: "{{ hostvars['localhost']['bswt_web_volume']['volume']['filesystem_path'] }}"
-    
-    - name: mount drive
-      mount:
-        path: /mnt/{{ data_volume_label }}
-        src: "{{ hostvars['localhost']['bswt_web_volume']['volume']['filesystem_path'] }}"
-        fstype: ext4
-        opts: defaults,noatime,nofail
-        state: mounted
-
-    - name: create group with write permissions to data drive
-      group:
-        name: bswtdata
-        state: present
-
-    - name: set mounted drive to allow bswtdata group to write
-      file:
-        path: /mnt/{{ data_volume_label }}
-        group: bswtdata
-        mode: '0770'
-
-
-- name: Install Docker
-  hosts: bswt_web_instances
-  become: yes
   vars_files:
     - ./group_vars/example_group/vars
   tasks:
-    - name: Upgrade all packages
-      apt:
-        update_cache: yes
-        upgrade: yes
+    - name: Create BSWT Web Lightsail stack
+      amazon.aws.cloudformation:
+        stack_name: "{{ stack_name }}"
+        state: present
+        template: cloudformation/bswt-website.yaml 
+
+# - name: Create BSWT Web Linode resources
+#   hosts: localhost
+#   tags: pipeline_development
+#   vars_files:
+#       - ./group_vars/example_group/vars
+#       - ./group_vars/example_group/credentials
+#   tasks:
+#     - name: Create BSWT Web Linode instance
+#       linode.cloud.instance:
+#         label: "{{ label }}"
+#         api_token: "{{ token }}"
+#         type: g6-nanode-1
+#         region: us-east
+#         image: linode/debian11
+#         root_pass: "{{ root_password }}"
+#         authorized_keys: "{{ ssh_keys }}"
+#         group: example_group
+#         tags: example_group
+#         state: present
+#       register: bswt_web_instance
+
+#     - name: Add BSWT Web Linode instance to bswt_web_instances group
+#       add_host:
+#         name: "{{ bswt_web_instance.instance.ipv4 | first }}"
+#         groups: bswt_web_instances
+
+#     - name: Create BSWT database persistent Linode volume
+#       linode.cloud.volume:
+#         label: "{{ data_volume_label }}"
+#         api_token: "{{ token }}"
+#         region: us-east
+#         size: 20
+#         linode_id: "{{ bswt_web_instance.instance.id }}"
+#         state: present
+#       register: bswt_web_volume
+
+# # set up the remote administration user first so we can disable root logins
+# - name: Set up remote administration user
+#   hosts: bswt_web_instances
+#   remote_user: root
+#   vars_files:
+#       - ./group_vars/example_group/vars
+#       - ./group_vars/example_group/credentials
+#   tasks:
+#     - name: Create admin user
+#       user:
+#         name: "{{ admin_user }}"
+#         comment: BSWT Administrative User
+#         password: "{{ admin_password | string | password_hash('sha512', admin_salt) }}"
+#         shell: /bin/bash
+
+#     - name: Passwordless sudo enabled for admin user
+#       community.general.sudoers:
+#         name: admin-user-passwordless
+#         user: "{{ admin_user }}"
+#         commands: ALL
+    
+#     - name: Add authorized key for admin user
+#       authorized_key:
+#         user: "{{ admin_user }}"
+#         state: present
+#         key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+
+#     - name: disable root ssh login
+#       lineinfile:
+#         dest: /etc/ssh/sshd_config
+#         regexp: '^PermitRootLogin'
+#         line: "#PermitRootLogin yes"
+#         state: present
+#       notify:
+#         - restart ssh
+
+#   handlers:
+#    - name: restart ssh
+#      service:
+#        name: sshd
+#        state: restarted
+
+# - name: prepare mysql data volume
+#   # tags: pipeline_development
+#   hosts: bswt_web_instances
+#   become: yes
+#   vars_files: 
+#     - ./group_vars/example_group/vars
+#     - ./group_vars/example_group/credentials
+#   tasks:
+#     # - name: debug stuff
+#     #   debug:
+#     #     msg: rosalyn {{ hostvars['localhost']['bswt_web_volume']['volume']['filesystem_path'] }}
+#     #     # msg: foo {{ bswt_web_volume }}
+    
+#     - name: make ext4 filesystem
+#       filesystem:
+#         fstype: ext4
+#         dev: "{{ hostvars['localhost']['bswt_web_volume']['volume']['filesystem_path'] }}"
+    
+#     - name: mount drive
+#       mount:
+#         path: /mnt/{{ data_volume_label }}
+#         src: "{{ hostvars['localhost']['bswt_web_volume']['volume']['filesystem_path'] }}"
+#         fstype: ext4
+#         opts: defaults,noatime,nofail
+#         state: mounted
+
+#     - name: create group with write permissions to data drive
+#       group:
+#         name: bswtdata
+#         state: present
+
+#     - name: set mounted drive to allow bswtdata group to write
+#       file:
+#         path: /mnt/{{ data_volume_label }}
+#         group: bswtdata
+#         mode: '0770'
+
+
+# - name: Install Docker
+#   hosts: bswt_web_instances
+#   become: yes
+#   vars_files:
+#     - ./group_vars/example_group/vars
+#   tasks:
+#     - name: Upgrade all packages
+#       apt:
+#         update_cache: yes
+#         upgrade: yes
   
-    - name: Install APT HTTPS packages
-      apt:
-        update_cache: yes
-        pkg:
-          - ca-certificates
-          - curl
-          - gnupg
-          - lsb-release
+#     - name: Install APT HTTPS packages
+#       apt:
+#         update_cache: yes
+#         pkg:
+#           - ca-certificates
+#           - curl
+#           - gnupg
+#           - lsb-release
 
-    # there may be a more ansible-ey way to do this.  This is just a first pass
-    # TODO check if file exists, do when clause
-    - name: check if docker archive keyring exists
-      stat: 
-        path: "{{ docker_keyring_path }}"
-      register: docker_keyring
+#     # there may be a more ansible-ey way to do this.  This is just a first pass
+#     # TODO check if file exists, do when clause
+#     - name: check if docker archive keyring exists
+#       stat: 
+#         path: "{{ docker_keyring_path }}"
+#       register: docker_keyring
 
-    - name: add docker gpg key to system keyring
-      shell: curl -fsSL {{ docker_gpg_url }} | gpg --dearmor -o {{ docker_keyring_path }}
-      when: not docker_keyring.stat.exists
+#     - name: add docker gpg key to system keyring
+#       shell: curl -fsSL {{ docker_gpg_url }} | gpg --dearmor -o {{ docker_keyring_path }}
+#       when: not docker_keyring.stat.exists
 
-    - name: add docker repository
-      apt_repository:
-        repo: "deb [arch=amd64 signed-by={{ docker_keyring_path }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
-        state: present
+#     - name: add docker repository
+#       apt_repository:
+#         repo: "deb [arch=amd64 signed-by={{ docker_keyring_path }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+#         state: present
     
-    - name: install docker
-      apt:
-        update_cache: yes
-        pkg:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin
+#     - name: install docker
+#       apt:
+#         update_cache: yes
+#         pkg:
+#           - docker-ce
+#           - docker-ce-cli
+#           - containerd.io
+#           - docker-compose-plugin
 
-    - name: install pip so we can use docker module
-      apt:
-        pkg:
-          - python3-pip
+#     - name: install pip so we can use docker module
+#       apt:
+#         pkg:
+#           - python3-pip
 
-    - name: we have to install pip docker module to further control docker
-      pip:
-        name: docker
+#     - name: we have to install pip docker module to further control docker
+#       pip:
+#         name: docker
 
-- name: Create app user
-  hosts: bswt_web_instances
-  become: yes
-  vars_files:
-      - ./group_vars/example_group/vars
-      - ./group_vars/example_group/credentials
-  tasks:
-    - name: Create app user
-      user:
-        name: "{{ app_user }}"
-        comment: User our apps will run under
-        password: "{{ app_password | string | password_hash('sha512', app_salt) }}"
-        shell: /bin/bash
-        groups:
-          - docker
-          - bswtdata
+# - name: Create app user
+#   hosts: bswt_web_instances
+#   become: yes
+#   vars_files:
+#       - ./group_vars/example_group/vars
+#       - ./group_vars/example_group/credentials
+#   tasks:
+#     - name: Create app user
+#       user:
+#         name: "{{ app_user }}"
+#         comment: User our apps will run under
+#         password: "{{ app_password | string | password_hash('sha512', app_salt) }}"
+#         shell: /bin/bash
+#         groups:
+#           - docker
+#           - bswtdata
 
-    - name: Add authorized key for app user
-      authorized_key:
-        user: "{{ app_user }}"
-        state: present
-        key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+#     - name: Add authorized key for app user
+#       authorized_key:
+#         user: "{{ app_user }}"
+#         state: present
+#         key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
 
-    - name: Install ACL support for ansible unprivileged user sudo
-      apt:
-        update_cache: yes
-        pkg: acl
+#     - name: Install ACL support for ansible unprivileged user sudo
+#       apt:
+#         update_cache: yes
+#         pkg: acl
 
-- name: Setup bswt database
-  hosts: bswt_web_instances
-  remote_user: "{{ app_user }}"
-  # tags: pipeline_development
-  vars_files:
-      - ./group_vars/example_group/vars
-      - ./group_vars/example_group/credentials
-  tasks:
-    - name: create data volume directory
-      file:
-        path: /mnt/{{ data_volume_label }}/mysql
-        state: directory
-        mode: '0755'
+# - name: Setup bswt database
+#   hosts: bswt_web_instances
+#   remote_user: "{{ app_user }}"
+#   # tags: pipeline_development
+#   vars_files:
+#     - ./group_vars/example_group/vars
+#     - ./group_vars/example_group/credentials
+#   tasks:
+#     - name: create data volume directory
+#       file:
+#         path: /mnt/{{ data_volume_label }}/mysql
+#         state: directory
+#         mode: '0755'
 
-    - name: create bswt docker network
-      docker_network: 
-        name: bswt-network
+#     - name: create bswt docker network
+#       docker_network: 
+#         name: bswt-network
 
-    - name: setup mysql docker container
-      docker_container:
-        name: bswt-mysql
-        image: mysql:latest
-        networks: 
-          - name: {{ network_name }}
-        detach: yes
-        volumes:
-          - /mnt/{{ data_volume_label }}/mysql:/var/lib/mysql
-        env:
-          MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+#     - name: setup mysql docker container
+#       docker_container:
+#         name: bswt-mysql
+#         image: mysql:latest
+#         networks: 
+#           - name: "{{ network_name }}"
+#         detach: yes
+#         volumes:
+#           - /mnt/{{ data_volume_label }}/mysql:/var/lib/mysql
+#         env:
+#           MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
 
-- name: setup 
-
+# - name: setup bswt wordpress 
+#   hosts: bswt_web_instances
+#   remote_user: "{{ app_user }}"
+#   tags: pipeline_development
+#   vars_files:
+#     - ./group_vars/example_group/vars
+#     - ./group_vars/example_group/credentials
+#   tasks:
+#     - name: install wordpress docker
+#       docker_container:
+#         name: bswt-wordpress
+#         image: wordpress
+#         networks:
+#           - name: "{{ network_name }}"
+#         detach: yes
+#         exposed_ports:
+#           - 80
+#         published_ports: 80:80

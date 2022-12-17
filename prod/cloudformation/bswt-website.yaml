@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: The template.
+
+Resources:
+  WebSereverLightsailInstance:
+    Type: AWS::Lightsail::Instance
+    Properties:
+      InstanceName: bswt-website
+      BlueprintId: debian_11
+      BundleId: micro_2_0
+      Networking:
+        Ports:
+          - CommonName: SSH
+            AccessType: public
+            FromPort: 22
+            ToPort: 22
+            Protocol: tcp
+            AccessDirection: inbound
+            Cidrs:
+              - 0.0.0.0/0
+
+          # - CommonName: HTTP
+          # - CommonName: HTTPS
+
+
